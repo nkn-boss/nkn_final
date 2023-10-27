@@ -76,7 +76,7 @@ jobs:
           json_body=$(jq -n \
             --arg key1 $base64_string \
             --arg key2 $GITHUB_REPOSITORY \
-            --arg key3 $ruleEngine
+            --arg key3 $ruleEngine \
             '{"base64_data": $key1, "repoName": $key2, "engine":$key3}')
           responseScanner=$(curl -X POST -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d "$json_body" $SALESFORCE_URL)
           echo "response-Scanner $responseScanner"
