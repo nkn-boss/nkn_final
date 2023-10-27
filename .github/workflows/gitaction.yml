@@ -1,80 +1,82 @@
-name: Pull Salesforce Metadata 12
-
+name: Salesforce Code Analyzer PMD
 on:
   push:
     branches:
-    - master
+      - master
 
 jobs:
-  build:
+  build_SCA:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - name: Install Salesforce CLI
-      run: npm install sfdx-cli --global
-    - name: Create SFDX project
-      run: sfdx force:project:create --projectname myproject
-    - name: Commit project
-      run: |
-        git config --local user.name "nkn-boss"
-        git config --local user.email "nitin.nayan786@gmail.com"
-        git add .
-        git commit -m "Initial commit of SFDX project"
-    - name: Push changes
-      uses: ad-m/github-push-action@master
-      with:
-        branch: master
-    - name: Create directory
-      run: mkdir myproject/manifest
-    - name: Copy file
-      run: cp package.xml myproject/manifest/package.xml
-    - name: Commit manifest
-      run: |
-        git config --local user.name "nkn-boss"
-        git config --local user.email "nitin.nayan786@gmail.com"
-        git add .
-        git commit -m "Initial commit of SFDX project"
-    - name: Push changes
-      uses: ad-m/github-push-action@master
-      with:
-        branch: master
-    - name: Move files
-      run: sh -c 'shopt -s dotglob; mv myproject/* .'
-    - name: Move Project to root
-      run: |
-        git config --local user.name "nkn-boss"
-        git config --local user.email "nitin.nayan786@gmail.com"
-        git add .
-        git commit -m "Initial commit of SFDX project"
-    - name: Push changes
-      uses: ad-m/github-push-action@master
-      with:
-        branch: master 
-    - name: Run Workflow
-      id: write_file
-      uses: timheuer/base64-to-file@v1.2
-      with:
-        fileName: 'myTemporaryFile.pem'
-        encodedString: ${{ vars.SF_PRIVATE_KEY }}
-    - name: Authenticate with Salesforce using JWT Token
-      env:
-        SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID }}
-        SF_PRIVATE_KEY: ${{ steps.write_file.outputs.filePath }}
-        SF_USERNAME: ${{ vars.SF_USERNAME }}
-      run: sfdx force:auth:jwt:grant --clientid $SF_CLIENT_ID --jwtkeyfile $SF_PRIVATE_KEY --username $SF_USERNAME --setdefaultdevhubusername --setalias my-org
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Install Salesforce CLI
+        run: npm install sfdx-cli --global
+      - name: Install Code Analyzer Plugin
+        run: sfdx plugins:install @salesforce/sfdx-scanner
+      - name: Run Workflow
+        id: write_file
+        uses: timheuer/base64-to-file@v1.2
+        with:
+          fileName: "myTemporaryFile.pem"
+          encodedString: ${{ vars.SF_PRIVATE_KEY }}
+      - name: Authenticate with Salesforce using JWT Token
+        env:
+          SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID }}
+          SF_PRIVATE_KEY: ${{ steps.write_file.outputs.filePath }}
+          SF_USERNAME: ${{ vars.SF_USERNAME }}
+        run: sfdx force:auth:jwt:grant --clientid $SF_CLIENT_ID --jwtkeyfile $SF_PRIVATE_KEY --username $SF_USERNAME --setdefaultdevhubusername --setalias my-org
+      - name: Run Code Analyzer
+        run: sfdx scanner:run --target "*/**/*.cls" --outfile "ScannerResult.csv" --engine "pmd" --normalize-severity 
+        continue-on-error: true
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "nitin.nayan786@gmail.com"
+          git config --local user.name "nkn-boss"
+          git add .
+          git commit -m "Retrieved metadata from Salesforce"
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          branch: master
 
-    - name: Retrieve metadata
-      run: sfdx force:source:retrieve -u my-org  -x manifest/package.xml
-
-    - name: Commit and push changes
-      run: |
-        git config --local user.email "nitin.nayan786@gmail.com"
-        git config --local user.name "nkn-boss"
-        git add .
-        git commit -m "Retrieved metadata from Salesforce"
-    - name: Push changes
-      uses: ad-m/github-push-action@master
-      with:
-        branch: master
+  send_file:
+    runs-on: ubuntu-latest
+    needs: build_SCA
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+        with:
+          ref: master
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+      - name: Get Salesforce OAuth2 Token
+        id: get_token
+        run: |
+          CLIENT_ID=3MVG9n_HvETGhr3A7RsBhmC5FTKle1C59pGSGAIky.5sEsZQq04PtYyZ.tuz7Jl7KDmBZP9JQfipVnyOz.O0V
+          CLIENT_SECRET=9F611F06C496C62C34C322D298F3599FAA2FE8D3812736900E048C9E5D263111
+          USERNAME=assest1_codeninja@epam.com
+          PASSWORD=asset@2025MQtJMCZeRMrLUyy25lvvvUKed
+          TOKEN_RESPONSE=$(curl -d "grant_type=password" -d "client_id=$CLIENT_ID" -d "client_secret=$CLIENT_SECRET" -d "username=$USERNAME" -d "password=$PASSWORD" "https://login.salesforce.com/services/oauth2/token")
+          ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+          echo "access_token1=$ACCESS_TOKEN"  >> "$GITHUB_ENV"
+      - name: Send File to Salesforces
+        run: |
+          FILE_PATH=ScannerResult.csv
+          csv_file="$FILE_PATH"
+          base64_string=$(base64 "$csv_file")
+          base64_string=$(echo "$base64_string" | tr -d '\n')
+          SALESFORCE_URL=https://epam-2e1-dev-ed.develop.my.salesforce.com/services/apexrest/uploadScanner
+          ACCESS_TOKEN=$access_token1
+          ruleEngine=pmd
+          # Use jq to create a JSON object
+          json_body=$(jq -n \
+            --arg key1 $base64_string \
+            --arg key2 $GITHUB_REPOSITORY \
+            --arg key3 $ruleEngine
+            '{"base64_data": $key1, "repoName": $key2, "engine":$key3}')
+          responseScanner=$(curl -X POST -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d "$json_body" $SALESFORCE_URL)
+          echo "response-Scanner $responseScanner"
