@@ -1,0 +1,80 @@
+name: Pull Salesforce Metadata 12
+
+on:
+  push:
+    branches:
+    - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Install Salesforce CLI
+      run: npm install sfdx-cli --global
+    - name: Create SFDX project
+      run: sfdx force:project:create --projectname myproject
+    - name: Commit project
+      run: |
+        git config --local user.name "nkn-boss"
+        git config --local user.email "nitin.nayan786@gmail.com"
+        git add .
+        git commit -m "Initial commit of SFDX project"
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        branch: master
+    - name: Create directory
+      run: mkdir myproject/manifest
+    - name: Copy file
+      run: cp package.xml myproject/manifest/package.xml
+    - name: Commit manifest
+      run: |
+        git config --local user.name "nkn-boss"
+        git config --local user.email "nitin.nayan786@gmail.com"
+        git add .
+        git commit -m "Initial commit of SFDX project"
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        branch: master
+    - name: Move files
+      run: sh -c 'shopt -s dotglob; mv myproject/* .'
+    - name: Move Project to root
+      run: |
+        git config --local user.name "nkn-boss"
+        git config --local user.email "nitin.nayan786@gmail.com"
+        git add .
+        git commit -m "Initial commit of SFDX project"
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        branch: master 
+    - name: Run Workflow
+      id: write_file
+      uses: timheuer/base64-to-file@v1.2
+      with:
+        fileName: 'myTemporaryFile.pem'
+        encodedString: ${{ vars.SF_PRIVATE_KEY }}
+    - name: Authenticate with Salesforce using JWT Token
+      env:
+        SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID }}
+        SF_PRIVATE_KEY: ${{ steps.write_file.outputs.filePath }}
+        SF_USERNAME: ${{ vars.SF_USERNAME }}
+      run: sfdx force:auth:jwt:grant --clientid $SF_CLIENT_ID --jwtkeyfile $SF_PRIVATE_KEY --username $SF_USERNAME --setdefaultdevhubusername --setalias my-org
+
+    - name: Retrieve metadata
+      run: sfdx force:source:retrieve -u my-org  -x manifest/package.xml
+
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "nitin.nayan786@gmail.com"
+        git config --local user.name "nkn-boss"
+        git add .
+        git commit -m "Retrieved metadata from Salesforce"
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        branch: master
